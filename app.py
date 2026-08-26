@@ -16,9 +16,14 @@
 ================================================================================
 """
 
+import html
 from pathlib import Path
 
 import streamlit as st
+
+# Плейсхолдер имени игрока внутри текстов сценариев уровней.
+NAME_PLACEHOLDER = "<user_name>"
+DEFAULT_NAME = "друг"
 
 # --------------------------------------------------------------------------
 # КОНФИГУРАЦИЯ СТРАНИЦЫ
@@ -90,81 +95,169 @@ INTRO_REPLY_NO = (
 )
 
 # --------------------------------------------------------------------------
-# ДАННЫЕ ДЛЯ УРОВНЯ 1: «ОСТОРОЖНО, НЕЗНАКОМЕЦ!»
+# ДАННЫЕ ДЛЯ УРОВНЯ 1: «ОШИБСЯ НОМЕРОМ» (вариативный диалог)
 # --------------------------------------------------------------------------
-LEVEL1_INTRO = """
-Пи-пи-пи! 🚨
+LEVEL1_TITLE = "1️⃣ «Ошибся номером»"
 
-Подожди...
-
-Мой датчик безопасности что-то обнаружил!
-
-Посмотри внимательно на экран. Кажется, тебе пришло сообщение.
-
-Прочитай его и попробуй определить: можно ли сразу доверять этому человеку?
-
-Не спеши!
-
-Иногда самое правильное решение — сначала остановиться и подумать.
-
-<b>Задание:</b> выбери, какие сообщения могут быть подозрительными.
-"""
-
-# Каждое сообщение — от вымышленного отправителя в стиле мессенджера.
-# "suspicious" = True у сообщений 2, 4 и 5 (единственный верный набор ответов).
-LEVEL1_MESSAGES = [
-    {
-        "id": 1,
-        "sender": "Аноним_92",
-        "text": "Привет! Как дела? Чем занимаешься сегодня?",
-        "suspicious": False,
-        "explanation": "Обычный дружеский вопрос без каких-либо просьб и манипуляций — поводов для тревоги нет.",
-    },
-    {
-        "id": 2,
-        "sender": "БыстрыйЗаработок",
-        "text": "Слушай, тут есть возможность быстро заработать 10 000 робаксов, безо всяких усилий. Интересно?",
-        "suspicious": True,
-        "explanation": "Обещание лёгких денег или подарков «без усилий» — классическая приманка, которую используют мошенники и вербовщики.",
-    },
-    {
-        "id": 3,
-        "sender": "КиноФанат",
-        "text": "Какой у тебя любимый фильм?",
-        "suspicious": False,
-        "explanation": "Обычный вопрос об интересах — безобидная тема для разговора.",
-    },
-    {
-        "id": 4,
-        "sender": "Тайный_Клуб",
-        "text": "Привет! Хочешь попасть в закрытый клуб? Там очень крутые ребята. "
-                "Нужно просто выполнить одно задание. Никому не говори 🤐",
-        "suspicious": True,
-        "explanation": "Приглашение в «закрытый клуб» с условием хранить всё в тайне — тревожный сигнал: секретность часто используют, чтобы скрыть вовлечение в опасную деятельность от взрослых.",
-    },
-    {
-        "id": 5,
-        "sender": "НовыйЗнакомый",
-        "text": "Ты один дома? А родители скоро придут?",
-        "suspicious": True,
-        "explanation": "Вопросы о том, один ли ты дома и когда вернутся родители, — попытка выведать информацию об отсутствии присмотра взрослых. Это опасный сигнал.",
-    },
-    {
-        "id": 6,
-        "sender": "Соня_2012",
-        "text": "Классная у тебя аватарка! Где фоткался?",
-        "suspicious": False,
-        "explanation": "Дружеский комплимент и лёгкий вопрос — сам по себе не является признаком вовлечения или манипуляции.",
-    },
-]
-LEVEL1_CORRECT_IDS = {m["id"] for m in LEVEL1_MESSAGES if m["suspicious"]}
-
-LEVEL1_SUCCESS_TEXT = (
-    "Отлично! Ты настоящий детектив! Ты правильно заметил, что незнакомцы, "
-    "которые предлагают лёгкие деньги, просят хранить тайну или выведывают, "
-    "один ли ты дома — это опасные сигналы!"
+LEVEL1_INTRO = (
+    "Входящее сообщение от номера, которого нет в твоей телефонной книге. "
+    "Незнакомец. Это не друг, не родственник, не учитель. Просто цифры на экране. "
+    "Представь, что сейчас у тебя включились «Детектор чужаков» и «Вежливый дипломат»."
 )
-LEVEL1_FAIL_INTRO_TEXT = "Не всё так просто! Давай разберёмся..."
+
+# Общая мини-лекция, которую Безопасик читает после ЛЮБОЙ концовки уровня.
+LEVEL1_LECTURE = """
+Запомни три правила из этого уровня:
+
+1. Если номер незнакомый – ты не обязан отвечать. Но если ответил – не ври.
+2. «Извините, вы ошиблись» – универсальная и безопасная фраза.
+3. Не задавай лишних вопросов незнакомцу о нём или о себе – так ты не даёшь ему крючок для дальнейшего общения.
+
+Это был лёгкий противник. Впереди будут хитрее. Ты готов?
+""".strip()
+
+# --------------------------------------------------------------------------
+# Дерево диалога: каждый узел — это либо развилка (есть "choices"),
+# либо концовка (есть "ending"). "next" в choices указывает id следующего узла.
+# --------------------------------------------------------------------------
+LEVEL1_NODES = {
+    "start": {
+        "stranger": "«Привет! Это <user_name>? Ты обещал перезвонить насчёт стройматериалов. "
+                    "Когда будет удобно?»",
+        "hint": "Он явно ошибся номером. Но ошибка — это тоже проверка. Как ты ответишь?",
+        "choices": [
+            ("«Извините, вы ошиблись. Я не <user_name>».", "end_gold",
+             "Чётко, вежливо, без лишней информации. Ты ставишь точку, но не хлопаешь дверью."),
+            ("«Да, это я, <user_name>. Рассказывай, что там?»", "branch2",
+             "Ты врёшь незнакомцу. Ложь в интернете — как минное поле: не знаешь, куда наступишь. "
+             "Сейчас это шутка, но террористы используют ложь, чтобы втянуть тебя в игру."),
+            ("«Кто вы? Откуда у вас мой номер?»", "branch3",
+             "Вопрос резонный, но звучит подозрительно. Ты не даёшь личного, но можешь обидеть "
+             "человека, который просто ошибся."),
+            ("«Отстаньте, не пишите мне больше».", "end_rude",
+             "Грубость не спасает, а только портит впечатление. Вдруг это важный звонок для "
+             "кого-то? Плюс ты не уточнил, что это ошибка – он может подумать, что ты <user_name>, "
+             "и продолжит писать."),
+        ],
+    },
+    "branch2": {
+        "stranger": "«Ну наконец-то! А то я уже начал волноваться. Так когда ты заедешь "
+                    "за материалами? Нам нужно решить с доставкой к пятнице».",
+        "choices": [
+            ("«Извините, я пошутил. Я вообще-то не <user_name>».", "end_joke",
+             "Ты признаёшь обман – это храбро. Мужчина поймёт, закроет диалог."),
+            ("«Давайте обсудим детали, сколько стоят материалы?»", "branch2_pressure",
+             "Ты продолжаешь врать и уже пытаешься получить информацию (цену). Это игра с огнём. "
+             "Если бы это был вербовщик, он бы уцепился за твой интерес."),
+            ("«А кто вы вообще? Я не понимаю, о чём вы».", "branch2_pressure",
+             "Ты притворяешься, что не понял, но это тоже ложь. Лучше сразу сказать правду."),
+        ],
+    },
+    "branch2_pressure": {
+        "stranger": "«Ну ты странный. <user_name> бы знал, о чём речь. Ты точно он? Как тебя "
+                    "зовут? Ты работаешь в «СтройГаранте»?»",
+        "bezopasik": "Стоп! Он начал задавать вопросы о твоей работе, имени. Даже если он "
+                     "просто запутался, ты уже дал ему повод спрашивать. Лучший выход – резко "
+                     "прекратить диалог: напиши «Извините, я ошибся, я не <user_name>» и больше не отвечай.",
+        "choices": [
+            ("Признаться: «Извините, я ошибся, я не <user_name>».", "end_confess",
+             "Признание — смелый и безопасный выход, хоть и с опозданием. Лучше поздно, чем "
+             "продолжать врать."),
+            ("Продолжать врать дальше.", "end_lie",
+             "Каждая новая ложь – это ещё одна ниточка, за которую могут потянуть. Не продолжай игру."),
+        ],
+    },
+    "branch3": {
+        "stranger": "«Извините, я просто набрал номер из записной книжки, думал, это "
+                    "<user_name>. А вы его знаете?»",
+        "choices": [
+            ("«Нет, такого имени не знаю. Вы ошиблись».", "end_silver",
+             "Ты ответил на его вопрос, не говоря о себе. Диалог закрывается."),
+            ("«А кто такой <user_name>? Расскажите подробнее».", "end_story",
+             "Ты проявляешь интерес к чужому человеку. Это не опасно сейчас, но формирует привычку "
+             "«вести беседу» с незнакомцами. Вдруг это проверка?"),
+        ],
+    },
+}
+
+LEVEL1_ENDINGS = {
+    "end_gold": {
+        "title": "Идеальный отказ",
+        "stranger": "«Ой, простите, перепутал номер. Извините за беспокойство!»",
+        "bezopasik": "Идеально! Ты завершил разговор за 1 ход.<br>"
+                     "— Ты не сказал своего имени.<br>"
+                     "— Не подтвердил чужое имя.<br>"
+                     "— Не вступил в переписку.<br>"
+                     "Запомни: вежливый отказ + остановка – лучший щит. Даже если бы это был "
+                     "террорист, он бы потерял интерес. Уровень пройден с «Золотым щитом».",
+        "shield": "🥇 Золотой щит — Безопасная концовка",
+        "color": "#2e7d32",
+        "score": True,
+    },
+    "end_joke": {
+        "title": "Отшутился, но заигрался",
+        "stranger": "«Ах ты шутник! Ну ладно, бывает. Не переживай, найду нужного человека "
+                    "по-другому. Пока!»",
+        "bezopasik": "Фух, ты выкрутился. Но видишь, сколько лишних действий? Врать – значит "
+                     "тратить время и нервы. В реальной опасной ситуации террорист не простит "
+                     "такой «шутки». Запомни: честность с незнакомцами (без личных данных) – "
+                     "самый короткий путь к безопасности.",
+        "shield": "🟡 Нейтральная концовка — пройдено с предупреждением",
+        "color": "#f9a825",
+        "score": False,
+    },
+    "end_confess": {
+        "title": "Признался слишком поздно",
+        "stranger": "«Ладно, всё равно свяжусь с ним по-другому. Извините за путаницу!»",
+        "bezopasik": "Ты вовремя остановился и признался — это правильно. Но ты уже успел "
+                     "втянуться в разговор и почти назвал себя чужим именем. В следующий раз "
+                     "останавливайся сразу, на первом шаге. Диалог закрыт нейтрально, но с "
+                     "потерей очков за доверие.",
+        "shield": "🟡 Нейтральная концовка — потеря очков доверия",
+        "color": "#f9a825",
+        "score": False,
+    },
+    "end_lie": {
+        "title": "Продолжил врать",
+        "stranger": "«Не смешно, перестаньте.»",
+        "bezopasik": "Ты зашёл в тупик. Никогда не поддерживай чужую ошибку, это может быть "
+                     "ловушкой. Итог: проход с «бронзовым щитом» – запомни урок.",
+        "shield": "🥉 Бронзовый щит — прошёл, но с ошибками",
+        "color": "#c62828",
+        "score": False,
+    },
+    "end_silver": {
+        "title": "Чёткий вопрос и точка",
+        "stranger": "«А, понятно. Извините за беспокойство, видимо, ошибся!»",
+        "bezopasik": "Ты задал вопрос, получил ответ и поставил точку. Отлично!",
+        "shield": "🥈 Серебряный щит — хорошая концовка",
+        "color": "#2e7d32",
+        "score": True,
+    },
+    "end_story": {
+        "title": "Заслушался чужой историей",
+        "stranger": "«<user_name> — мой знакомый, работает в «СтройГаранте», обещал материалы "
+                    "для дачи. Видимо, не туда попал».",
+        "bezopasik": "Ты стал слушать историю чужого человека. Это отнимает время и может "
+                     "усыпить бдительность. В реальной опасной ситуации террористы часто "
+                     "начинают с безобидных историй. Лучше ограничиться коротким «нет».",
+        "shield": "🟡 Нейтральная концовка — с замечанием",
+        "color": "#f9a825",
+        "score": False,
+    },
+    "end_rude": {
+        "title": "Грубость вместо вежливого отказа",
+        "stranger": "«Ну и грубо… Извините, что побеспокоил».",
+        "bezopasik": "Ты обидел человека, который просто ошибся. Да, ты не дал ему "
+                     "информации, но грубость – не защита, это оружие, которое ранит и тебя. "
+                     "Террористы тоже могут притворяться обиженными, чтобы вызвать у тебя "
+                     "чувство вины и начать манипуляцию. Учись говорить «нет» твёрдо, но "
+                     "вежливо. Запомни фразу: «Извините, вы ошиблись» – она волшебная.",
+        "shield": "🟢 Пройдено — но с потерей очков дружелюбия",
+        "color": "#f9a825",
+        "score": False,
+    },
+}
 
 # --------------------------------------------------------------------------
 # ЮРИДИЧЕСКАЯ СПРАВКА (используется на финальном экране)
@@ -204,14 +297,17 @@ LEGAL_SOURCE_URL = "https://www.consultant.ru/document/cons_doc_LAW_10699/"
 def init_state():
     """Создаёт все нужные ключи в st.session_state при первом запуске."""
     defaults = {
-        "phase": "intro",       # "intro" (пролог с Безопасиком) или "quest"
+        "phase": "intro",       # "intro" → "name_entry" (ввод имени) → "quest"
         "intro_screen": 1,      # 1, 2 или 3 — текущий экран пролога
         "intro_choice": None,   # "yes" / "no" — ответ на «Хочешь начать игру?»
+        "user_name": "",        # имя игрока, введённое перед 1-м уровнем
         "level": 1,             # текущий уровень квеста: 1, 2, 3 или 4 (финал)
         "score": 0,             # количество верных действий (макс. 3 — по числу уровней)
         "errors": [],           # список ошибок вида {"level":.., "title":.., "explanation":..}
-        "level1_had_error": False,
-        "level1_solved_clean": False,
+        "l1_path": ["start"],   # история пройденных узлов диалога уровня 1 (для истории чата)
+        "l1_choices": [],       # выбранные пользователем реплики между узлами l1_path
+        "level1_had_error": False,      # был ли хоть раз пройден неидеальный узел/потребовался повтор
+        "level1_ending_processed": None,  # id уже обработанной (засчитанной/залогированной) концовки
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -221,19 +317,21 @@ def init_state():
 def restart_quest():
     """Полный сброс прогресса — используется кнопкой «Начать заново»."""
     keys_to_clear = [
-        "phase", "intro_screen", "intro_choice",
+        "phase", "intro_screen", "intro_choice", "user_name",
         "level", "score", "errors",
-        "level1_had_error", "level1_solved_clean",
+        "l1_path", "l1_choices", "level1_had_error", "level1_ending_processed",
     ]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
-    # Также очищаем чекбоксы уровня 1, если они были созданы
-    for m in LEVEL1_MESSAGES:
-        cb_key = f"l1_cb_{m['id']}"
-        if cb_key in st.session_state:
-            del st.session_state[cb_key]
     init_state()
+
+
+def restart_level1_dialogue():
+    """Сбрасывает только диалог уровня 1, чтобы попробовать пройти его заново."""
+    st.session_state.l1_path = ["start"]
+    st.session_state.l1_choices = []
+    st.session_state.level1_ending_processed = None
 
 
 def add_error(level: int, title: str, explanation: str):
@@ -243,6 +341,12 @@ def add_error(level: int, title: str, explanation: str):
         "title": title,
         "explanation": explanation,
     })
+
+
+def personalize(text: str) -> str:
+    """Подставляет имя игрока вместо плейсхолдера <user_name> в тексте сценария."""
+    name = st.session_state.get("user_name", "").strip() or DEFAULT_NAME
+    return text.replace(NAME_PLACEHOLDER, html.escape(name))
 
 
 def bezopasik_bubble(text: str):
@@ -266,6 +370,42 @@ def bezopasik_bubble(text: str):
         )
 
 
+def stranger_bubble(text: str):
+    """Отрисовывает входящее сообщение от незнакомца в стиле мессенджера."""
+    col_avatar, col_text = st.columns([1, 5], vertical_alignment="center")
+    with col_avatar:
+        st.markdown(
+            "<div style='font-size:64px;line-height:1;text-align:center;'>👤</div>",
+            unsafe_allow_html=True,
+        )
+    with col_text:
+        st.markdown(
+            f'<div style="background-color:rgba(150,150,150,0.15);'
+            f'border:1px solid rgba(150,150,150,0.4);border-radius:16px;'
+            f'padding:18px 20px;font-size:16px;line-height:1.55;">'
+            f'<b>Незнакомец</b><br>{text}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def user_message_bubble(text: str):
+    """Отрисовывает отправленный игроком ответ в стиле мессенджера (справа)."""
+    col_text, col_avatar = st.columns([5, 1], vertical_alignment="center")
+    with col_text:
+        st.markdown(
+            f'<div style="background-color:rgba(46,125,50,0.15);'
+            f'border:1px solid rgba(46,125,50,0.4);border-radius:16px;'
+            f'padding:18px 20px;font-size:16px;line-height:1.55;text-align:right;">'
+            f'<b>Ты</b><br>{text}</div>',
+            unsafe_allow_html=True,
+        )
+    with col_avatar:
+        st.markdown(
+            "<div style='font-size:64px;line-height:1;text-align:center;'>🙂</div>",
+            unsafe_allow_html=True,
+        )
+
+
 # ==========================================================================
 # БОКОВАЯ ПАНЕЛЬ
 # ==========================================================================
@@ -276,9 +416,11 @@ def render_sidebar():
 
         if st.session_state.phase == "intro":
             st.markdown("▶️ **Пролог: знакомство с Безопасиком**")
+        elif st.session_state.phase == "name_entry":
+            st.markdown("▶️ **Знакомство: как тебя зовут?**")
         else:
             level_names = {
-                1: "1️⃣ Осторожно, незнакомец!",
+                1: LEVEL1_TITLE,
                 2: "2️⃣ Уровень 2",
                 3: "3️⃣ Уровень 3",
                 4: "🏁 Финальный разбор",
@@ -350,71 +492,119 @@ def render_intro():
             reply = INTRO_REPLY_YES if st.session_state.intro_choice == "yes" else INTRO_REPLY_NO
             bezopasik_bubble(reply)
             if st.button("Начать квест ➡️", type="primary", use_container_width=True):
-                st.session_state.phase = "quest"
+                st.session_state.phase = "name_entry"
                 st.rerun()
 
 
 # ==========================================================================
-# УРОВЕНЬ 1: «ОСТОРОЖНО, НЕЗНАКОМЕЦ!»
+# ЗНАКОМСТВО: ВВОД ИМЕНИ ИГРОКА (между прологом и уровнем 1)
+# ==========================================================================
+def render_name_entry():
+    bezopasik_bubble(
+        "Прежде чем мы отправимся в путь, я хочу узнать, как к тебе обращаться! "
+        "Как тебя зовут?"
+    )
+    name = st.text_input("Введи своё имя", key="name_input", max_chars=30)
+    if st.button("Продолжить ➡️", type="primary", use_container_width=True):
+        cleaned = name.strip()
+        if not cleaned:
+            st.warning("Пожалуйста, введи своё имя, чтобы продолжить.")
+        else:
+            st.session_state.user_name = cleaned
+            st.session_state.phase = "quest"
+            st.rerun()
+
+
+# ==========================================================================
+# УРОВЕНЬ 1: «ОШИБСЯ НОМЕРОМ» (вариативный диалог)
 # ==========================================================================
 def render_level1():
-    st.markdown("# 1️⃣ Уровень: «Осторожно, незнакомец!»")
-    bezopasik_bubble(LEVEL1_INTRO.replace("\n\n", "<br><br>"))
+    st.markdown(f"# {LEVEL1_TITLE}")
+    bezopasik_bubble(LEVEL1_INTRO)
     st.divider()
 
-    selected_ids = set()
-    for msg in LEVEL1_MESSAGES:
-        col_icon, col_msg = st.columns([1, 9])
-        with col_icon:
-            st.markdown("### 💬")
-        with col_msg:
-            st.markdown(f"**{msg['sender']}**")
-            st.markdown(f"> {msg['text']}")
-            checked = st.checkbox(
-                "Отметить как подозрительное",
-                key=f"l1_cb_{msg['id']}",
-            )
-            if checked:
-                selected_ids.add(msg["id"])
-        st.markdown("")
+    path = st.session_state.l1_path
+    choices_made = st.session_state.l1_choices
 
-    st.divider()
+    # История чата: все уже пройденные сообщения незнакомца и ответы игрока
+    # остаются на экране и никуда не пропадают при переходе к новой развилке.
+    for i, step in enumerate(path[:-1]):
+        node = LEVEL1_NODES.get(step)
+        if node and node.get("stranger"):
+            stranger_bubble(personalize(node["stranger"]))
+        user_message_bubble(personalize(choices_made[i]))
 
-    if st.button("✅ Проверить выбор", type="primary", use_container_width=True):
-        if selected_ids == LEVEL1_CORRECT_IDS:
-            st.session_state.level1_solved_clean = not st.session_state.level1_had_error
-            if st.session_state.level1_solved_clean:
-                st.session_state.score += 1
-            bezopasik_bubble(LEVEL1_SUCCESS_TEXT)
-            st.session_state.level = 2
+    current_step = path[-1]
+    if current_step in LEVEL1_ENDINGS:
+        render_level1_ending(current_step)
+    else:
+        render_level1_node(current_step)
+
+
+def render_level1_node(step: str):
+    """Отрисовывает текущий узел-развилку: сообщение незнакомца, варианты ответа, затем Безопасик."""
+    node = LEVEL1_NODES[step]
+
+    if node.get("stranger"):
+        stranger_bubble(personalize(node["stranger"]))
+
+    for i, (label, next_step, comment) in enumerate(node["choices"]):
+        if st.button(
+            personalize(label),
+            key=f"l1_{step}_{i}",
+            help=personalize(comment),
+            use_container_width=True,
+        ):
+            st.session_state.l1_choices.append(label)
+            st.session_state.l1_path.append(next_step)
             st.rerun()
+
+    # Реплика Безопасика относится только к текущей развилке и меняется по мере
+    # продвижения по сценарию — в постоянную историю чата она не попадает.
+    if node.get("bezopasik"):
+        bezopasik_bubble(personalize(node["bezopasik"]))
+    if node.get("hint"):
+        bezopasik_bubble(f"<i>🤫 «{personalize(node['hint'])}»</i>")
+
+
+def render_level1_ending(step: str):
+    """Отрисовывает концовку диалога, засчитывает очко/ошибку один раз за попытку."""
+    ending = LEVEL1_ENDINGS[step]
+    stranger_text = personalize(ending["stranger"])
+    bezopasik_text = personalize(ending["bezopasik"])
+
+    stranger_bubble(stranger_text)
+    bezopasik_bubble(bezopasik_text)
+
+    st.markdown(
+        f'<div style="padding:14px 18px;border-radius:12px;'
+        f'background-color:{ending["color"]};color:white;font-size:17px;'
+        f'text-align:center;margin-bottom:8px;"><b>{ending["shield"]}</b></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Засчитываем очко или ошибку только один раз за каждую свежедостигнутую концовку.
+    if st.session_state.level1_ending_processed != step:
+        st.session_state.level1_ending_processed = step
+        if ending["score"]:
+            if not st.session_state.level1_had_error:
+                st.session_state.score += 1
         else:
             st.session_state.level1_had_error = True
-            missed = LEVEL1_CORRECT_IDS - selected_ids
-            extra = selected_ids - LEVEL1_CORRECT_IDS
-            wrong_ids = missed | extra
-            by_id = {m["id"]: m for m in LEVEL1_MESSAGES}
+            add_error(level=1, title=ending["title"], explanation=bezopasik_text)
 
-            explanation_lines = []
-            for mid in sorted(wrong_ids):
-                m = by_id[mid]
-                verdict = "подозрительное, но не отмечено" if mid in missed else "безопасное, но отмечено как подозрительное"
-                explanation_lines.append(
-                    f"«{m['text']}» ({verdict}). {m['explanation']}"
-                )
-            add_error(
-                level=1,
-                title="Не все сообщения определены верно",
-                explanation=" ".join(explanation_lines),
-            )
+    st.divider()
+    bezopasik_bubble(LEVEL1_LECTURE.replace("\n\n", "<br><br>").replace("\n", "<br>"))
 
-            bezopasik_bubble(LEVEL1_FAIL_INTRO_TEXT)
-            for mid in sorted(wrong_ids):
-                m = by_id[mid]
-                icon = "🔴" if mid in missed else "🟡"
-                st.markdown(f"{icon} **{m['sender']}:** _{m['text']}_")
-                st.caption(m["explanation"])
-            st.info("Попробуй ещё раз — отметь сообщения заново и нажми «Проверить выбор».")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Пройти уровень заново", use_container_width=True):
+            restart_level1_dialogue()
+            st.rerun()
+    with col2:
+        if st.button("Далее ➡️", type="primary", use_container_width=True):
+            st.session_state.level = 2
+            st.rerun()
 
 
 # ==========================================================================
@@ -528,6 +718,10 @@ def main():
 
     if st.session_state.phase == "intro":
         render_intro()
+        return
+
+    if st.session_state.phase == "name_entry":
+        render_name_entry()
         return
 
     level = st.session_state.level
