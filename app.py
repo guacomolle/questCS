@@ -320,9 +320,6 @@ def render_sidebar():
 # ПРОЛОГ: ЗНАКОМСТВО С БЕЗОПАСИКОМ
 # ==========================================================================
 def render_intro():
-    st.markdown(f"# {DOG} Знакомься — Безопасик!")
-    st.divider()
-
     screen = st.session_state.intro_screen
 
     if screen == 1:
@@ -513,11 +510,18 @@ def render_final():
 def main():
     init_state()
 
-    st.title(f"{DOG} Квест: Безопасик")
-    st.caption(
-        "Интерактивный тренажёр по выявлению и минимизации рисков экстремизма "
-        "и деструктивной деятельности"
-    )
+    col_logo, col_title = st.columns([1, 6], vertical_alignment="center")
+    with col_logo:
+        if MASCOT_PATH.exists():
+            st.image(str(MASCOT_PATH), width=70)
+        else:
+            # Файл mascot.png не найден рядом с app.py — показываем эмодзи-заглушку.
+            st.markdown(
+                "<div style='font-size:48px;line-height:1;'>🐶🤖</div>",
+                unsafe_allow_html=True,
+            )
+    with col_title:
+        st.title("Квест: Безопасик")
     st.divider()
 
     render_sidebar()
