@@ -1,0 +1,7 @@
+services:
+  quest:
+    build: .
+    container_name: kvest-bezopasika
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
